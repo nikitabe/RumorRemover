@@ -41,11 +41,37 @@ def _find_file(name):
     raise FileNotFoundError(f"{name} not found in: {candidates}")
 
 
+def _read_dotenv():
+    """Parse the local .env fresh (if present) so config — including the model —
+    can be switched between requests without restarting. On hosts without a .env
+    file (e.g. Vercel), this returns {} and we fall back to os.environ."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(os.path.dirname(here), ".env"), os.path.join(os.getcwd(), ".env")):
+        if os.path.exists(path):
+            vals = {}
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, _, v = line.partition("=")
+                        vals[k.strip()] = v.strip().strip('"').strip("'")
+            except OSError:
+                pass
+            return vals
+    return {}
+
+
 def get_config():
+    # .env (read per call) takes precedence; otherwise the process environment.
+    env = _read_dotenv()
+    def g(key, default=""):
+        return env.get(key) or os.environ.get(key, default)
     return {
-        "base_url": os.environ.get("BASE_URL", DEFAULT_BASE).rstrip("/"),
-        "api_key": os.environ.get("AI_KEY", ""),
-        "model": os.environ.get("LLM_MODEL", ""),
+        "base_url": g("BASE_URL", DEFAULT_BASE).rstrip("/"),
+        "api_key": g("AI_KEY", ""),
+        "model": g("LLM_MODEL", ""),
     }
 
 
