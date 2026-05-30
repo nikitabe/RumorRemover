@@ -67,6 +67,10 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/health":
             self._send_json(200, _core.health())
             return
+        if self.path == "/api/models":
+            status, payload = _core.list_models()
+            self._send_json(status, payload)
+            return
         super().do_GET()
 
     def do_POST(self):
@@ -78,13 +82,14 @@ class Handler(SimpleHTTPRequestHandler):
             raw = self.rfile.read(length) if length else b"{}"
             data = json.loads(raw.decode("utf-8"))
             rumor = (data.get("rumor") or "").strip()
+            model = (data.get("model") or "").strip()
         except Exception:
             self._send_json(400, {"error": "Invalid JSON body."})
             return
         if not rumor:
             self._send_json(400, {"error": "Missing 'rumor' in request body."})
             return
-        status, payload = _core.call_llm(rumor)
+        status, payload = _core.call_llm(rumor, model)
         self._send_json(status, payload)
 
     def log_message(self, fmt, *args):

@@ -72,6 +72,14 @@
   .spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
 
+  /* MODEL SELECTOR */
+  .modelbar{display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:.84rem;color:var(--muted);flex-wrap:wrap}
+  .modelbar label{font-weight:600;color:var(--txt-soft)}
+  .modelbar select{flex:0 1 auto;max-width:360px;background:var(--bg);border:1px solid var(--line-strong);border-radius:9px;padding:8px 12px;color:var(--txt);font-family:inherit;font-size:.85rem;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .modelbar select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(14,159,110,.12)}
+  .modelbar select:disabled{opacity:.6;cursor:not-allowed}
+  .modelbar .mhint{color:var(--faint);font-size:.78rem}
+
   /* RESULT */
   #result{margin-top:26px}
   .verdict{display:flex;align-items:center;gap:14px;padding:18px 22px;border-radius:14px;border:1px solid var(--line);margin-bottom:16px;box-shadow:var(--shadow-sm)}
@@ -157,6 +165,11 @@
         </div>
         <button class="btn primary" id="checkBtn"><span id="btnText">Check rumor</span></button>
       </div>
+      <div class="modelbar">
+        <label for="model">Model</label>
+        <select id="model" disabled><option>Loading models…</option></select>
+        <span class="mhint" id="modelHint"></span>
+      </div>
     </div>
 
     <!-- RESULT -->
@@ -177,8 +190,10 @@
 const $ = id => document.getElementById(id);
 const els = {
   rumor:$('rumor'), btn:$('checkBtn'), btnText:$('btnText'),
-  result:$('result'), srvBadge:$('srvBadge'), srvText:$('srvText')
+  result:$('result'), srvBadge:$('srvBadge'), srvText:$('srvText'),
+  model:$('model'), modelHint:$('modelHint')
 };
+const MODEL_LS = 'rumorremover.model';
 
 // ---- server health ----
 let SERVER_READY = false;
@@ -200,6 +215,32 @@ async function checkHealth(){
     els.srvText.innerHTML = `Backend not reachable (<code>/api/health</code> did not respond). On Vercel, ensure the <code>api/</code> functions are deployed and <code>AI_KEY</code> / <code>LLM_MODEL</code> are set in Project Settings → Environment Variables. Locally, run <code>python3 server.py</code> and open the page through it.`;
   }
 }
+
+// ---- model selector ----
+async function loadModels(){
+  let saved = '';
+  try{ saved = localStorage.getItem(MODEL_LS) || ''; }catch(e){}
+  try{
+    const res = await fetch('/api/models', {cache:'no-store'});
+    const d = await res.json();
+    const models = (d && d.models) || [];
+    const current = (d && d.current) || '';
+    if(!models.length) throw new Error('no models');
+    const want = (saved && models.includes(saved)) ? saved : current;
+    els.model.innerHTML = models.map(m =>
+      `<option value="${m}"${m===want?' selected':''}>${m}</option>`).join('');
+    els.model.disabled = false;
+    els.modelHint.textContent = current ? `default: ${current}` : '';
+  }catch(e){
+    // graceful fallback: keep using the server-configured model
+    els.model.innerHTML = `<option value="">Server default</option>`;
+    els.model.disabled = true;
+    els.modelHint.textContent = 'model list unavailable — using server default';
+  }
+}
+els.model.addEventListener('change', ()=>{
+  try{ localStorage.setItem(MODEL_LS, els.model.value); }catch(e){}
+});
 
 // ---- example chips ----
 $('examples').addEventListener('click', e=>{
@@ -254,7 +295,7 @@ async function checkRumor(){
     const res = await fetch('/api/check', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ rumor })
+      body: JSON.stringify({ rumor, model: (els.model && els.model.value) || undefined })
     });
     const data = await res.json().catch(()=>null);
     if(!res.ok){
@@ -279,6 +320,7 @@ els.btn.addEventListener('click', checkRumor);
 els.rumor.addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') checkRumor(); });
 
 checkHealth();
+loadModels();
 </script>
 </body>
 </html>

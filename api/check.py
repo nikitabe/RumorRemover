@@ -23,11 +23,12 @@ class handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length) if length else b"{}"
             data = json.loads(raw.decode("utf-8"))
             rumor = (data.get("rumor") or "").strip()
+            model = (data.get("model") or "").strip()
         except Exception:
             self._send(400, {"error": "Invalid JSON body."})
             return
         if not rumor:
             self._send(400, {"error": "Missing 'rumor' in request body."})
             return
-        status, payload = _core.call_llm(rumor)
+        status, payload = _core.call_llm(rumor, model)
         self._send(status, payload)

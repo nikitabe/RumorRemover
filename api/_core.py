@@ -117,10 +117,36 @@ def health():
     }
 
 
-def call_llm(rumor):
-    """Verify a rumor. Returns (status_code, payload_dict)."""
+def list_models():
+    """List model ids available from the configured provider. Returns (status, payload)."""
     cfg = get_config()
-    if not cfg["api_key"] or not cfg["model"]:
+    if not cfg["api_key"]:
+        return 503, {"error": "Server is not configured. Set AI_KEY."}
+    is_anthropic = "anthropic.com" in cfg["base_url"]
+    endpoint = cfg["base_url"] + "/models"
+    headers = (
+        {"x-api-key": cfg["api_key"], "anthropic-version": ANTHROPIC_VERSION}
+        if is_anthropic else {"authorization": "Bearer " + cfg["api_key"]}
+    )
+    req = urllib.request.Request(endpoint, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return 502, {"error": f"Could not list models ({e.code}).", "current": cfg["model"], "models": []}
+    except Exception as e:
+        return 502, {"error": f"Could not list models: {e}", "current": cfg["model"], "models": []}
+    items = data.get("data", data if isinstance(data, list) else [])
+    ids = sorted({m.get("id") for m in items if isinstance(m, dict) and m.get("id")})
+    return 200, {"models": ids, "current": cfg["model"]}
+
+
+def call_llm(rumor, model=None):
+    """Verify a rumor. `model` (optional) overrides the configured model for this
+    request. Returns (status_code, payload_dict)."""
+    cfg = get_config()
+    model = (model or "").strip() or cfg["model"]
+    if not cfg["api_key"] or not model:
         return 503, {"error": "Server is not configured. Set AI_KEY and LLM_MODEL."}
 
     overall_start = time.monotonic()
@@ -140,7 +166,7 @@ def call_llm(rumor):
         # Anthropic Messages API: system is a top-level field; auth via x-api-key.
         endpoint = cfg["base_url"] + "/messages"
         body = json.dumps({
-            "model": cfg["model"],
+            "model": model,
             "max_tokens": MAX_TOKENS,
             "temperature": 0.2,
             "system": system_prompt,
@@ -157,7 +183,7 @@ def call_llm(rumor):
         # OpenAI-compatible Chat Completions (e.g. Nebius Token Factory).
         endpoint = cfg["base_url"] + "/chat/completions"
         body = json.dumps({
-            "model": cfg["model"],
+            "model": model,
             "max_tokens": MAX_TOKENS,
             "temperature": 0.2,
             "messages": [
@@ -206,4 +232,4 @@ def call_llm(rumor):
         return 502, {"error": "Malformed response from the LLM endpoint.", "raw": data}
 
     elapsed_ms = round((time.monotonic() - overall_start) * 1000)
-    return 200, {"content": content, "model": cfg["model"], "elapsedMs": elapsed_ms}
+    return 200, {"content": content, "model": model, "elapsedMs": elapsed_ms}
