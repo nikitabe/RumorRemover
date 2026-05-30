@@ -1,11 +1,527 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hello World</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RumorRemover — Open-Source Rumor Triage for the 2026 Ebola Response</title>
+<style>
+  :root{
+    --bg:#0a0e17;
+    --bg-soft:#111726;
+    --panel:#151c2c;
+    --panel-2:#1b2435;
+    --line:rgba(255,255,255,.08);
+    --txt:#e8edf6;
+    --muted:#9aa6bd;
+    --brand:#36d399;
+    --brand-2:#22b8cf;
+    --warn:#ffb454;
+    --alert:#ff5d5d;
+    --radius:18px;
+    --max:1120px;
+    --font:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:var(--font);
+    background:var(--bg);
+    color:var(--txt);
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+
+  /* ---------- NAV ---------- */
+  nav{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(14px);
+    background:rgba(10,14,23,.72);
+    border-bottom:1px solid var(--line);
+  }
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.02em;font-size:1.1rem}
+  .logo .dot{width:12px;height:12px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px rgba(54,211,153,.18);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(54,211,153,.4)}70%{box-shadow:0 0 0 12px rgba(54,211,153,0)}100%{box-shadow:0 0 0 0 rgba(54,211,153,0)}}
+  .navlinks{display:flex;gap:28px;font-size:.92rem;color:var(--muted)}
+  .navlinks a:hover{color:var(--txt)}
+  @media(max-width:760px){.navlinks{display:none}}
+
+  /* ---------- HERO ---------- */
+  header.hero{position:relative;padding:96px 0 72px;overflow:hidden}
+  .hero-glow{position:absolute;inset:-30% -10% auto -10%;height:560px;
+    background:radial-gradient(50% 60% at 30% 30%,rgba(54,211,153,.20),transparent 70%),
+               radial-gradient(45% 55% at 75% 20%,rgba(34,184,207,.20),transparent 70%);
+    filter:blur(10px);z-index:0;pointer-events:none}
+  .hero .wrap{position:relative;z-index:1}
+  .tag{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:7px 14px;border:1px solid var(--line);border-radius:999px;
+    background:rgba(255,93,93,.08);color:#ffd2d2;font-size:.8rem;font-weight:600;letter-spacing:.02em;
+    margin-bottom:26px;
+  }
+  .tag .live{width:8px;height:8px;border-radius:50%;background:var(--alert);box-shadow:0 0 0 0 rgba(255,93,93,.5);animation:pulse-r 1.8s infinite}
+  @keyframes pulse-r{0%{box-shadow:0 0 0 0 rgba(255,93,93,.55)}70%{box-shadow:0 0 0 10px rgba(255,93,93,0)}100%{box-shadow:0 0 0 0 rgba(255,93,93,0)}}
+  h1.title{
+    font-size:clamp(2.6rem,6vw,4.6rem);line-height:1.02;font-weight:900;letter-spacing:-.03em;
+    background:linear-gradient(180deg,#fff 30%,#b9c6dd);-webkit-background-clip:text;background-clip:text;color:transparent;
+    max-width:14ch;
+  }
+  .subtitle{margin-top:22px;font-size:clamp(1.05rem,2.2vw,1.3rem);color:var(--muted);max-width:60ch}
+  .cta{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;padding:13px 22px;border-radius:12px;font-weight:600;font-size:.96rem;
+    transition:transform .15s ease,box-shadow .15s ease;border:1px solid transparent;
+  }
+  .btn.primary{background:linear-gradient(120deg,var(--brand),var(--brand-2));color:#04130d;box-shadow:0 10px 30px -8px rgba(54,211,153,.5)}
+  .btn.primary:hover{transform:translateY(-2px);box-shadow:0 16px 40px -8px rgba(54,211,153,.6)}
+  .btn.ghost{border-color:var(--line);color:var(--txt);background:rgba(255,255,255,.02)}
+  .btn.ghost:hover{border-color:rgba(255,255,255,.25);transform:translateY(-2px)}
+
+  /* ---------- STAT BAR ---------- */
+  .stats{
+    margin-top:64px;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+  }
+  .stat{background:var(--panel);padding:26px 22px;text-align:center}
+  .stat .num{font-size:clamp(1.7rem,3.4vw,2.4rem);font-weight:900;letter-spacing:-.02em;color:#fff}
+  .stat .num.alert{color:var(--alert)}
+  .stat .num.warn{color:var(--warn)}
+  .stat .lbl{margin-top:6px;font-size:.82rem;color:var(--muted);line-height:1.4}
+  @media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+  /* ---------- SECTIONS ---------- */
+  section{padding:80px 0;position:relative}
+  .eyebrow{display:inline-block;font-size:.8rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--brand);margin-bottom:14px}
+  h2{font-size:clamp(1.8rem,4vw,2.7rem);font-weight:800;letter-spacing:-.025em;line-height:1.1;max-width:20ch}
+  .lead{margin-top:18px;color:var(--muted);font-size:1.08rem;max-width:65ch}
+  .section-head{margin-bottom:48px}
+
+  /* ---------- CARDS ---------- */
+  .grid{display:grid;gap:20px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:900px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--bg-soft));
+    border:1px solid var(--line);border-radius:var(--radius);padding:28px;
+    transition:transform .18s ease,border-color .18s ease;
+  }
+  .card:hover{transform:translateY(-4px);border-color:rgba(54,211,153,.35)}
+  .card .ic{
+    width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-size:1.3rem;margin-bottom:18px;
+    background:rgba(54,211,153,.12);border:1px solid rgba(54,211,153,.25);
+  }
+  .card h3{font-size:1.18rem;font-weight:700;letter-spacing:-.01em;margin-bottom:10px}
+  .card p{color:var(--muted);font-size:.95rem}
+  .num-badge{font-weight:900;font-size:1.05rem;color:var(--brand)}
+
+  /* ---------- PIPELINE ---------- */
+  .pipeline{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+  .pstep{flex:1 1 200px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;position:relative;min-width:200px}
+  .pstep .pnum{font-size:.75rem;font-weight:700;color:var(--brand);letter-spacing:.1em}
+  .pstep h4{margin:8px 0 6px;font-size:1.05rem;font-weight:700}
+  .pstep p{color:var(--muted);font-size:.88rem}
+  .parrow{display:grid;place-items:center;color:var(--brand);font-size:1.6rem;flex:0 0 36px}
+  @media(max-width:820px){.parrow{transform:rotate(90deg);height:30px}}
+
+  /* ---------- SOURCES TABLE ---------- */
+  .source-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:820px){.source-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:480px){.source-grid{grid-template-columns:1fr}}
+  .src{
+    border:1px solid var(--line);border-radius:14px;padding:18px;background:var(--panel);
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .src .name{font-weight:700;display:flex;align-items:center;gap:9px}
+  .pill{font-size:.7rem;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.03em}
+  .pill.yes{background:rgba(54,211,153,.15);color:var(--brand)}
+  .pill.no{background:rgba(255,93,93,.15);color:var(--alert)}
+  .pill.maybe{background:rgba(255,180,84,.15);color:var(--warn)}
+  .src small{color:var(--muted);font-size:.82rem}
+
+  /* ---------- SPLIT / CONTEXT ---------- */
+  .split{display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:start}
+  @media(max-width:860px){.split{grid-template-columns:1fr;gap:32px}}
+  .factlist{list-style:none;display:flex;flex-direction:column;gap:16px;margin-top:8px}
+  .factlist li{display:flex;gap:14px;align-items:flex-start}
+  .factlist .mk{flex:0 0 auto;width:26px;height:26px;border-radius:8px;background:rgba(34,184,207,.14);border:1px solid rgba(34,184,207,.3);display:grid;place-items:center;font-size:.85rem;margin-top:2px}
+  .factlist span{color:var(--muted);font-size:.97rem}
+  .panel-box{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:28px}
+  .panel-box h3{font-size:1.05rem;margin-bottom:18px;color:var(--txt)}
+  .mini-stat{display:flex;justify-content:space-between;align-items:baseline;padding:13px 0;border-bottom:1px solid var(--line)}
+  .mini-stat:last-child{border-bottom:0}
+  .mini-stat .k{color:var(--muted);font-size:.9rem}
+  .mini-stat .v{font-weight:800;font-size:1.15rem}
+
+  /* ---------- CHALLENGE / NOTE ---------- */
+  .note{
+    border-left:3px solid var(--warn);background:rgba(255,180,84,.06);
+    padding:18px 22px;border-radius:0 12px 12px 0;color:var(--muted);font-size:.95rem;
+  }
+  .note strong{color:var(--txt)}
+  .ladder{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .rung{padding:9px 16px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-weight:600;font-size:.9rem}
+  .ladder .sep{color:var(--brand);font-weight:800}
+
+  /* ---------- REFERENCES ---------- */
+  .refs{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  @media(max-width:680px){.refs{grid-template-columns:1fr}}
+  .ref{display:flex;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);transition:border-color .15s}
+  .ref:hover{border-color:rgba(54,211,153,.4)}
+  .ref .rn{flex:0 0 auto;font-weight:800;color:var(--brand);font-size:.9rem}
+  .ref .rt{font-size:.9rem;color:var(--muted)}
+  .ref .rt b{color:var(--txt);font-weight:600;display:block;margin-bottom:2px}
+
+  /* ---------- FOOTER ---------- */
+  footer{border-top:1px solid var(--line);padding:48px 0 40px;color:var(--muted)}
+  .foot-grid{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  footer .logo{color:var(--txt)}
+  .disclaimer{margin-top:28px;font-size:.78rem;line-height:1.6;color:#6f7c93;max-width:75ch}
+
+  .divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);border:0;margin:0}
+
+  /* reveal */
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.in{opacity:1;transform:none}
+</style>
 </head>
 <body>
-  <h1>Hello World</h1>
+
+<nav>
+  <div class="wrap">
+    <div class="logo"><span class="dot"></span>RumorRemover</div>
+    <div class="navlinks">
+      <a href="#context">Context</a>
+      <a href="#solution">Solution</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#sources">Sources</a>
+      <a href="#scope">MVP</a>
+      <a href="#refs">References</a>
+    </div>
+    <a class="btn primary" href="#scope" style="padding:9px 16px;font-size:.88rem">View the Build →</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="hero-glow"></div>
+  <div class="wrap">
+    <span class="tag"><span class="live"></span>ACTIVE PHEIC · Declared by WHO, 17 May 2026</span>
+    <h1 class="title">Counter rumors at the speed they spread.</h1>
+    <p class="subtitle">
+      An open-source rumor-triage pipeline for the 2026 Ebola Bundibugyo response in eastern DRC &amp; Uganda.
+      It captures what communities are really saying, clusters scattered reports into thematic threats with an LLM,
+      and drafts accurate, culturally sensitive counter-messaging for frontline teams.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="#solution">How it works ↓</a>
+      <a class="btn ghost" href="#refs">Read the evidence base</a>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="num alert">134</div><div class="lbl">Confirmed cases<br>(DRC + Uganda, 29 May)</div></div>
+      <div class="stat"><div class="num warn">1,077</div><div class="lbl">Suspected cases<br>reported in DRC</div></div>
+      <div class="stat"><div class="num">0</div><div class="lbl">Approved vaccines or<br>specific treatments</div></div>
+      <div class="stat"><div class="num">~80%</div><div class="lbl">Population reached<br>by radio in Uganda</div></div>
+    </div>
+  </div>
+</header>
+
+<hr class="divider">
+
+<!-- CONTEXT -->
+<section id="context">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <span class="eyebrow">The Context</span>
+        <h2>Misinformation is now as critical as clinical care.</h2>
+        <p class="lead">
+          The Bundibugyo strain has no widely approved vaccine or specific therapeutic, so control depends on trust:
+          early detection, safe care-seeking, contact tracing, and dignified burials. Fake cures, resistance to
+          isolation, and rumors about treatment centers can undermine containment within hours.
+        </p>
+        <ul class="factlist">
+          <li><span class="mk">🗺️</span><span>Unfolding across Ituri, Nord-Kivu &amp; Sud-Kivu — ~5.9–7M people, nearly 1M displaced, high mining-and-trade mobility and persistent insecurity.</span></li>
+          <li><span class="mk">🗣️</span><span>Linguistically diverse: French, Swahili, Lingala, plus local languages like Lendu and Nyali. Biomedical vocabulary often doesn't survive translation.</span></li>
+          <li><span class="mk">⚰️</span><span>Funeral practices — body washing, mourning gatherings, burial location — are major transmission and trust issues. Messaging must adapt rituals, not just ban them.</span></li>
+          <li><span class="mk">🌍</span><span>Cross-border movement to Uganda, Rwanda &amp; South Sudan complicates contact tracing and accelerates undetected transmission.</span></li>
+        </ul>
+      </div>
+      <aside class="panel-box">
+        <h3>Outbreak snapshot · as of 27–29 May 2026</h3>
+        <div class="mini-stat"><span class="k">Confirmed deaths (DRC)</span><span class="v" style="color:var(--alert)">17</span></div>
+        <div class="mini-stat"><span class="k">Suspected deaths (DRC)</span><span class="v" style="color:var(--warn)">246</span></div>
+        <div class="mini-stat"><span class="k">Uganda confirmed cases</span><span class="v">7–9</span></div>
+        <div class="mini-stat"><span class="k">Incubation period</span><span class="v">2–21 days</span></div>
+        <div class="mini-stat"><span class="k">Most-affected age</span><span class="v">20–39 yrs</span></div>
+        <div class="mini-stat"><span class="k">DRC's outbreak count</span><span class="v">17th</span></div>
+        <p style="margin-top:18px;font-size:.8rem;color:#6f7c93">Source: CDC, WHO &amp; INSP/COUSP-RDC situation reports. Risk to the U.S. public remains low.</p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- SOLUTION -->
+<section id="solution">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">The Solution</span>
+      <h2>A lightweight listening &amp; response loop, built on tools the field already uses.</h2>
+      <p class="lead">
+        An open-source pipeline on top of <strong style="color:var(--txt)">KoboToolbox</strong>. It ingests community
+        reports, uses an LLM to cluster scattered rumors into high-level thematic threats, and instantly generates
+        targeted counter-messaging aligned with official public-health guidance — with a human always in the loop.
+      </p>
+    </div>
+    <div class="grid g4">
+      <div class="card reveal">
+        <div class="ic">📥</div>
+        <h3>Listen</h3>
+        <p>Responders, community leaders &amp; field workers log rumors via a simple KoboToolbox form — web or offline KoboCollect.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic">🧩</div>
+        <h3>Cluster</h3>
+        <p>An LLM groups dozens of localized reports — e.g. "poisoned food at the clinic" — into single semantic threat themes.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic">✍️</div>
+        <h3>Draft</h3>
+        <p>It auto-generates localized, de-escalating communication briefs optimized for radio, WhatsApp &amp; CHV talking points.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic">✅</div>
+        <h3>Verify</h3>
+        <p>Trained moderators &amp; RCCE focal points review every output. The AI drafts and analyzes — it never decides.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ARCHITECTURE -->
+<section id="architecture">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Core Architecture</span>
+      <h2>From a field report to a broadcast-ready brief.</h2>
+    </div>
+    <div class="pipeline">
+      <div class="pstep">
+        <div class="pnum">STEP 01</div>
+        <h4>Flexible Capture</h4>
+        <p>KoboToolbox form with text-entry fields. Works in any browser or offline via KoboCollect.</p>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="pnum">STEP 02</div>
+        <h4>Data Ingestion</h4>
+        <p>Custom backend pulls submissions via the Kobo REST API (polling) or Webhooks (real-time push).</p>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="pnum">STEP 03</div>
+        <h4>AI Triage</h4>
+        <p>Text routed to an LLM via OpenRouter — swap freely between Llama 3, Claude or Gemini.</p>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="pnum">STEP 04</div>
+        <h4>Cluster &amp; Draft</h4>
+        <p>Thematic clustering of rumors plus auto-drafted, de-escalating counter-messages.</p>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="pnum">STEP 05</div>
+        <h4>Dashboard</h4>
+        <p>A simple frontend surfaces active rumor trends and ready-to-use briefs for RCCE teams.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- SOURCES -->
+<section id="sources">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Where signals come from</span>
+      <h2>Mapping the information landscape — and what's ethically scrapeable.</h2>
+      <p class="lead">
+        WhatsApp dominates communication across the region but is encrypted and private — so the system never monitors
+        it directly. Instead it draws on opt-in tips, public posts, and radio. Radio still reaches an estimated 80%+ of
+        Ugandans and broadcasts in local languages, making it more influential than social media in rural areas.
+      </p>
+    </div>
+    <div class="source-grid">
+      <div class="src"><div class="name">📻 Radio channels <span class="pill yes">Transcribe</span></div><small>300+ licensed stations; 80%+ reach in local languages. Automated transcription.</small></div>
+      <div class="src"><div class="name">🎵 TikTok <span class="pill yes">Realistic</span></div><small>Surging among younger users. Public posts trackable by popularity.</small></div>
+      <div class="src"><div class="name">📸 Instagram Reels <span class="pill maybe">Algorithmic</span></div><small>Popularity / algorithm tracking on public reels.</small></div>
+      <div class="src"><div class="name">📘 Facebook <span class="pill yes">Public API</span></div><small>Very popular via Lite. Meta Content Library for researchers.</small></div>
+      <div class="src"><div class="name">🐦 Twitter / X <span class="pill yes">Public</span></div><small>Urban professionals &amp; politicians. Public-post listening.</small></div>
+      <div class="src"><div class="name">📰 News channels <span class="pill yes">Open</span></div><small>Public reporting and feeds for narrative tracking.</small></div>
+      <div class="src"><div class="name">💬 WhatsApp <span class="pill no">No scraping</span></div><small>Encrypted &amp; private. Opt-in tip reporting &amp; Business API only.</small></div>
+      <div class="src"><div class="name">📲 SMS reporting <span class="pill yes">Wide reach</span></div><small>Works on basic phones — the widest reach of any channel.</small></div>
+    </div>
+
+    <div class="grid g3" style="margin-top:28px">
+      <div class="card">
+        <div class="ic">🤝</div>
+        <h3>Human monitor network</h3>
+        <p>Community volunteers forward rumors they see in WhatsApp groups — an Uchaguzi/Ushahidi-style crowdsourced model that respects encryption.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🔎</div>
+        <h3>Africa Check</h3>
+        <p>Africa's largest fact-checking organization (Johannesburg, Nigeria, Senegal, Kenya). A reference partner for verified information rather than a build-on platform.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🧭</div>
+        <h3>Combine all channels</h3>
+        <p>The strongest systems fuse radio transcription, human WhatsApp monitors, public-API social scraping, and SMS — no single angle catches everything.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- SCOPE -->
+<section id="scope">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Hackathon MVP Scope</span>
+      <h2>What we will build.</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3><span class="num-badge">01 ·</span> Kobo Integration</h3>
+        <p>Stand up a KoboToolbox deployment and design a simple form with text-entry fields for rapid rumor reporting.</p>
+      </div>
+      <div class="card">
+        <h3><span class="num-badge">02 ·</span> Backend Ingestion</h3>
+        <p>A lightweight service (Node.js, Python, Go — any stack) retrieving incoming reports via the Kobo API or Webhooks.</p>
+      </div>
+      <div class="card">
+        <h3><span class="num-badge">03 ·</span> AI Processing</h3>
+        <p>Connect the stream to an LLM (via OpenRouter or similar) to parse, categorize and synthesize text into narratives and counter-messages.</p>
+      </div>
+      <div class="card">
+        <h3><span class="num-badge">04 ·</span> Lightweight Dashboard</h3>
+        <p>A simple open-source frontend (React, plain HTML, or Streamlit) showing active rumor trends and drafted counter-messaging.</p>
+      </div>
+    </div>
+
+    <div class="section-head" style="margin-top:64px">
+      <span class="eyebrow">Known Challenges</span>
+      <h2>Honest about the hard parts.</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="ic">🌐</div>
+        <h3>Language coverage</h3>
+        <p>Existing transcription tools handle Swahili and Luganda, but local dialects aren't supported — a local translator on the team is needed. We plan to validate in one mostly-Luganda-speaking community (the Baganda) first.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🔒</div>
+        <h3>WhatsApp is a black box</h3>
+        <p>Encryption means no scraping. Rumors spread fastest there in urban areas, so coverage depends on opt-in tips, a Business API number, and human monitors.</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:24px">
+      <strong>Practical priority order for language rollout:</strong>
+    </div>
+    <div class="ladder">
+      <span class="rung">English</span><span class="sep">→</span>
+      <span class="rung">Luganda</span><span class="sep">→</span>
+      <span class="rung">Regional languages via human monitors</span>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- REFERENCES -->
+<section id="refs">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Evidence Base</span>
+      <h2>Live dashboards &amp; primary sources.</h2>
+      <p class="lead">This project is grounded in official public-health reporting and humanitarian situation updates. Key live trackers and references below.</p>
+    </div>
+    <div class="grid g4" style="margin-bottom:28px">
+      <a class="card" href="https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON605" target="_blank" rel="noopener">
+        <div class="ic">🌐</div><h3>WHO</h3><p>Disease Outbreak News — Bundibugyo, DRC &amp; Uganda.</p>
+      </a>
+      <a class="card" href="https://www.cdc.gov/ebola/situation-summary/index.html" target="_blank" rel="noopener">
+        <div class="ic">🇺🇸</div><h3>CDC</h3><p>Ebola Disease: current situation summary.</p>
+      </a>
+      <a class="card" href="https://sante.gouv.cd/epidemie/ebola-bundibugyo-2026" target="_blank" rel="noopener">
+        <div class="ic">🇨🇩</div><h3>DRC Ministry</h3><p>Official Ebola Bundibugyo 2026 dashboard.</p>
+      </a>
+      <a class="card" href="https://inrb-umie.github.io/EBOV2026_Epidemic_Dashboard/" target="_blank" rel="noopener">
+        <div class="ic">📊</div><h3>INRB / INSP</h3><p>Institute of Public Health epidemic dashboard.</p>
+      </a>
+    </div>
+    <div class="refs">
+      <a class="ref" href="https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON602" target="_blank" rel="noopener"><span class="rn">[3]</span><span class="rt"><b>WHO DON602</b>Ebola caused by Bundibugyo virus — DRC &amp; Uganda, 16 May 2026.</span></a>
+      <a class="ref" href="https://www.ifrc.org/article/statement-ifrc-saddened-deaths-three-drc-red-cross-volunteers-ituri-province" target="_blank" rel="noopener"><span class="rn">[6]</span><span class="rt"><b>IFRC</b>Statement on three DRC Red Cross volunteers, Ituri, 23 May 2026.</span></a>
+      <a class="ref" href="https://insp.cd/wp-content/uploads/2026/05/Draft-MVE-Ituri-ActuelB-1.pdf" target="_blank" rel="noopener"><span class="rn">[8]</span><span class="rt"><b>INSP/COUSP-RDC</b>SitRep MVE Ituri No. 001/2026.</span></a>
+      <a class="ref" href="https://hal.science/hal-05632368v1" target="_blank" rel="noopener"><span class="rn">[12]</span><span class="rt"><b>Villa J. et al.</b>Contextual Note on the Ebola Bundibugyo Outbreak in Ituri (2026).</span></a>
+      <a class="ref" href="https://reliefweb.int/report/democratic-republic-congo/iom-multi-country-ebola-bundibugyo-outbreak-situation-report-no-1-15-21-may-2026" target="_blank" rel="noopener"><span class="rn">[13]</span><span class="rt"><b>IOM</b>Multi-Country Bundibugyo Outbreak SitRep No. 1, 15–21 May 2026.</span></a>
+      <a class="ref" href="https://reliefweb.int/report/democratic-republic-congo/acaps-briefing-note-drc-ebola-outbreak-22-may-2026" target="_blank" rel="noopener"><span class="rn">[14]</span><span class="rt"><b>ACAPS</b>Briefing Note: DRC Ebola outbreak, 22 May 2026.</span></a>
+      <a class="ref" href="https://www.ox.ac.uk/news/2026-05-22-statement-on-vaccine-efforts-relating-to-the-bundibugyo-ebolavirus-outbreak-in-the" target="_blank" rel="noopener"><span class="rn">[17]</span><span class="rt"><b>University of Oxford</b>Statement on ChAdOx1 BDBV vaccine efforts.</span></a>
+      <a class="ref" href="https://africacheck.org" target="_blank" rel="noopener"><span class="rn">[★]</span><span class="rt"><b>Africa Check</b>Africa's largest fact-checking organization — reference partner.</span></a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div style="max-width:38ch">
+        <div class="logo"><span class="dot"></span>RumorRemover</div>
+        <p style="margin-top:12px;font-size:.9rem">Open-source rumor triage for the 2026 Ebola Bundibugyo response. Listen systematically, respond through trusted local channels, keep a human in the loop.</p>
+      </div>
+      <div style="display:flex;gap:48px;flex-wrap:wrap;font-size:.9rem">
+        <div>
+          <div style="color:var(--txt);font-weight:700;margin-bottom:10px">Explore</div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <a href="#context">Context</a><a href="#solution">Solution</a><a href="#architecture">Architecture</a>
+          </div>
+        </div>
+        <div>
+          <div style="color:var(--txt);font-weight:700;margin-bottom:10px">Build</div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <a href="#sources">Sources</a><a href="#scope">MVP Scope</a><a href="#refs">References</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="disclaimer">
+      Built in partnership concept with the Harvard Humanitarian Initiative, WHO, and national/subnational response actors.
+      The system never monitors private communications without consent; it draws only on opt-in and publicly available sources.
+      All AI outputs are reviewed by trained human moderators before use. Figures reflect CDC, WHO and INSP/COUSP-RDC reporting
+      as of 27–29 May 2026 and will change as the outbreak evolves. Risk to the U.S. public remains low.
+    </p>
+  </div>
+</footer>
+
+<script>
+  // scroll reveal
+  const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
 </body>
 </html>
