@@ -182,7 +182,7 @@ async function checkHealth(){
     }
   }catch(e){
     els.srvBadge.className='badge err'; els.srvBadge.textContent='offline';
-    els.srvText.innerHTML = `Backend not reachable. Run <code>python3 server.py</code> and open this page through it (not via plain http.server or file://).`;
+    els.srvText.innerHTML = `Backend not reachable (<code>/api/health</code> did not respond). On Vercel, ensure the <code>api/</code> functions are deployed and <code>AI_KEY</code> / <code>LLM_MODEL</code> are set in Project Settings → Environment Variables. Locally, run <code>python3 server.py</code> and open the page through it.`;
   }
 }
 

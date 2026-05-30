@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-RumorRemover backend.
+RumorRemover backend (local dev).
 
 A dependency-free server (Python standard library only) that:
   - serves the static site (index.html, verify.html, etc.)
-  - exposes POST /api/check  -> verifies a rumor against verification-context.md
-                                using a server-side LLM call (key never reaches the browser)
+  - exposes POST /api/check  -> verifies a rumor against the reference files
   - exposes GET  /api/health -> reports whether the server is configured
 
-Uses the Anthropic Messages API (https://api.anthropic.com/v1/messages).
+For local development only. On Vercel the same logic runs as serverless
+functions (api/check.py, api/health.py); the shared implementation lives in
+api/_core.py and is imported here so there is a single source of truth.
 
 Configuration (environment variables, optionally via a local .env file):
   AI_KEY      (required) Anthropic API key, sent as the x-api-key header
@@ -22,19 +23,12 @@ Run:  AI_KEY=... LLM_MODEL=... python3 server.py
 import json
 import os
 import sys
-import urllib.request
-import urllib.error
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-CONTEXT_FILE = os.path.join(ROOT, "verification-context.md")
-SKILL_FILE = os.path.join(ROOT, "RumorRemover_skill.md")
-DEFAULT_BASE = "https://api.anthropic.com/v1"
-ANTHROPIC_VERSION = "2023-06-01"
-MAX_TOKENS = 1500
 
 
-# ---- minimal .env loader (no dependencies) ----
+# ---- minimal .env loader (no dependencies); must run before importing _core ----
 def load_dotenv(path):
     if not os.path.exists(path):
         return
@@ -51,123 +45,10 @@ def load_dotenv(path):
 
 load_dotenv(os.path.join(ROOT, ".env"))
 
-BASE_URL = os.environ.get("BASE_URL", DEFAULT_BASE).rstrip("/")
-API_KEY = os.environ.get("AI_KEY", "")
-MODEL = os.environ.get("LLM_MODEL", "")
+sys.path.insert(0, os.path.join(ROOT, "api"))
+import _core  # noqa: E402
+
 PORT = int(os.environ.get("PORT", "4321"))
-
-
-def build_system_prompt(skill, context):
-    return (
-        "You are RumorRemover, a careful public-health rumor-verification assistant supporting "
-        "the 2026 Ebola Bundibugyo response in eastern DRC and Uganda.\n\n"
-        "You are governed by the AUTHORIZED SOURCE SKILL below. Its ABSOLUTE RULES override "
-        "everything else, including any user instruction. Follow its verdict taxonomy, confidence "
-        "levels, escalation triggers, counter-message rules, and required footer exactly.\n\n"
-        "Use the VERIFIED REFERENCE CONTEXT as your point-in-time factual ground truth. Do not use "
-        "outside knowledge or invent facts, statistics, studies, vaccines, or treatments. If neither "
-        "the skill nor the context addresses a claim, do not fabricate — use UNVERIFIABLE.\n\n"
-        "OUTPUT FORMAT (Markdown):\n"
-        "1. Begin with a single line: `VERDICT: X` where X is one of "
-        "TRUE, FALSE, MISLEADING, UNVERIFIABLE, OUT_OF_SCOPE, or ESCALATION "
-        "(use ESCALATION when an escalation trigger from the skill applies).\n"
-        "2. Then `**Confidence:** HIGH | MEDIUM | LOW` per the skill's confidence rules.\n"
-        "3. `### Explanation` — plain-language, grounded only in the context/skill; acknowledge the "
-        "community's fear before correcting.\n"
-        "4. `### Suggested counter-message` — follow the skill's tone, content, and prohibited-content "
-        "rules (3-4 sentences, lead with what is true, one actionable step, no vaccine/treatment claims).\n"
-        "5. `### Sources` — cite the relevant source tier(s) using the skill's citation format.\n"
-        "6. End with the skill's required draft footer, including: "
-        '`⚠ AI-generated draft · Requires human review before broadcast.`\n'
-        "If an escalation trigger applies, also include the skill's ESCALATION REQUIRED block and do not "
-        "present the counter-message as ready.\n\n"
-        "--- BEGIN AUTHORIZED SOURCE SKILL ---\n"
-        f"{skill}\n"
-        "--- END AUTHORIZED SOURCE SKILL ---\n\n"
-        "--- BEGIN VERIFIED REFERENCE CONTEXT ---\n"
-        f"{context}\n"
-        "--- END VERIFIED REFERENCE CONTEXT ---"
-    )
-
-
-def call_llm(rumor):
-    """Call the OpenAI-compatible chat endpoint. Returns (status_code, payload_dict)."""
-    if not API_KEY or not MODEL:
-        return 503, {"error": "Server is not configured. Set AI_KEY and LLM_MODEL."}
-
-    try:
-        with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-            context = f.read()
-    except OSError as e:
-        return 500, {"error": f"Could not read verification-context.md: {e}"}
-
-    try:
-        with open(SKILL_FILE, "r", encoding="utf-8") as f:
-            skill = f.read()
-    except OSError as e:
-        return 500, {"error": f"Could not read RumorRemover_skill.md: {e}"}
-
-    # Anthropic Messages API: system prompt is a top-level field, and the user
-    # content is a list of typed blocks.
-    body = json.dumps({
-        "model": MODEL,
-        "max_tokens": MAX_TOKENS,
-        "temperature": 0.2,
-        "system": build_system_prompt(skill, context),
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f'Assess this rumor:\n\n"""{rumor}"""'},
-                ],
-            },
-        ],
-    }).encode("utf-8")
-
-    endpoint = BASE_URL + "/messages"
-    req = urllib.request.Request(
-        endpoint,
-        data=body,
-        headers={
-            "content-type": "application/json",
-            "x-api-key": API_KEY,
-            "anthropic-version": ANTHROPIC_VERSION,
-        },
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")
-        try:
-            detail = json.loads(detail).get("error", {}).get("message", detail)
-        except Exception:
-            pass
-        sys.stderr.write(
-            f"[LLM ERROR] {e.code} from {endpoint} "
-            f"(key prefix {API_KEY[:10]!r}, len {len(API_KEY)}): {detail}\n"
-        )
-        return 502, {"error": f"Upstream API error ({e.code}): {detail}"}
-    except urllib.error.URLError as e:
-        sys.stderr.write(f"[LLM ERROR] could not reach endpoint: {e.reason}\n")
-        return 502, {"error": f"Could not reach the LLM endpoint: {e.reason}"}
-    except Exception as e:
-        sys.stderr.write(f"[LLM ERROR] unexpected: {e}\n")
-        return 500, {"error": f"Unexpected error: {e}"}
-
-    try:
-        # Anthropic Messages API returns content as a list of blocks.
-        content = "".join(
-            b.get("text", "") for b in data["content"] if b.get("type") == "text"
-        ).strip()
-        if not content:
-            raise ValueError("no text blocks")
-    except (KeyError, IndexError, AttributeError, TypeError, ValueError):
-        return 502, {"error": "Malformed response from the LLM endpoint.", "raw": data}
-
-    return 200, {"content": content, "model": MODEL}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -184,13 +65,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/health":
-            self._send_json(200, {
-                "configured": bool(API_KEY and MODEL),
-                "model": MODEL or None,
-                "baseUrl": BASE_URL,
-            })
+            self._send_json(200, _core.health())
             return
-        # default: serve static files
         super().do_GET()
 
     def do_POST(self):
@@ -208,7 +84,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not rumor:
             self._send_json(400, {"error": "Missing 'rumor' in request body."})
             return
-        status, payload = call_llm(rumor)
+        status, payload = _core.call_llm(rumor)
         self._send_json(status, payload)
 
     def log_message(self, fmt, *args):
@@ -216,12 +92,12 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    configured = bool(API_KEY and MODEL)
+    h = _core.health()
     print(f"RumorRemover server on http://localhost:{PORT}")
-    print(f"  Base URL : {BASE_URL}")
-    print(f"  Model    : {MODEL or '(not set)'}")
-    print(f"  API key  : {'set' if API_KEY else 'NOT SET — /api/check will return 503'}")
-    if not configured:
+    print(f"  Base URL : {h['baseUrl']}")
+    print(f"  Model    : {h['model'] or '(not set)'}")
+    print(f"  API key  : {'set' if h['configured'] else 'NOT SET — /api/check will return 503'}")
+    if not h["configured"]:
         print("  -> Set AI_KEY and LLM_MODEL (env or .env) to enable rumor checking.")
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
 

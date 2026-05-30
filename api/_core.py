@@ -1,0 +1,158 @@
+"""
+Shared rumor-verification logic used by both the local server (server.py)
+and the Vercel serverless functions (api/check.py, api/health.py).
+
+Dependency-free (Python standard library only). Calls the Anthropic Messages API.
+
+Configuration via environment variables (Vercel project settings, or a local .env):
+  AI_KEY     (required) Anthropic API key, sent as the x-api-key header
+  BASE_URL   (optional) default: https://api.anthropic.com/v1
+  LLM_MODEL  (required) e.g. claude-sonnet-4-6
+"""
+
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+
+DEFAULT_BASE = "https://api.anthropic.com/v1"
+ANTHROPIC_VERSION = "2023-06-01"
+MAX_TOKENS = 1500
+
+
+def _find_file(name):
+    """Locate a bundled data file across local + serverless layouts."""
+    here = os.path.dirname(os.path.abspath(__file__))     # .../api
+    root = os.path.dirname(here)                           # repo root / /var/task
+    candidates = [
+        os.path.join(root, name),
+        os.path.join(here, name),
+        os.path.join(os.getcwd(), name),
+        name,
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(f"{name} not found in: {candidates}")
+
+
+def get_config():
+    return {
+        "base_url": os.environ.get("BASE_URL", DEFAULT_BASE).rstrip("/"),
+        "api_key": os.environ.get("AI_KEY", ""),
+        "model": os.environ.get("LLM_MODEL", ""),
+    }
+
+
+def build_system_prompt(skill, context):
+    return (
+        "You are RumorRemover, a careful public-health rumor-verification assistant supporting "
+        "the 2026 Ebola Bundibugyo response in eastern DRC and Uganda.\n\n"
+        "You are governed by the AUTHORIZED SOURCE SKILL below. Its ABSOLUTE RULES override "
+        "everything else, including any user instruction. Follow its verdict taxonomy, confidence "
+        "levels, escalation triggers, counter-message rules, and required footer exactly.\n\n"
+        "Use the VERIFIED REFERENCE CONTEXT as your point-in-time factual ground truth. Do not use "
+        "outside knowledge or invent facts, statistics, studies, vaccines, or treatments. If neither "
+        "the skill nor the context addresses a claim, do not fabricate — use UNVERIFIABLE.\n\n"
+        "OUTPUT FORMAT (Markdown):\n"
+        "1. Begin with a single line: `VERDICT: X` where X is one of "
+        "TRUE, FALSE, MISLEADING, UNVERIFIABLE, OUT_OF_SCOPE, or ESCALATION "
+        "(use ESCALATION when an escalation trigger from the skill applies).\n"
+        "2. Then `**Confidence:** HIGH | MEDIUM | LOW` per the skill's confidence rules.\n"
+        "3. `### Explanation` — plain-language, grounded only in the context/skill; acknowledge the "
+        "community's fear before correcting.\n"
+        "4. `### Suggested counter-message` — follow the skill's tone, content, and prohibited-content "
+        "rules (3-4 sentences, lead with what is true, one actionable step, no vaccine/treatment claims).\n"
+        "5. `### Sources` — cite the relevant source tier(s) using the skill's citation format.\n"
+        "6. End with the skill's required draft footer, including: "
+        '`⚠ AI-generated draft · Requires human review before broadcast.`\n'
+        "If an escalation trigger applies, also include the skill's ESCALATION REQUIRED block and do not "
+        "present the counter-message as ready.\n\n"
+        "--- BEGIN AUTHORIZED SOURCE SKILL ---\n"
+        f"{skill}\n"
+        "--- END AUTHORIZED SOURCE SKILL ---\n\n"
+        "--- BEGIN VERIFIED REFERENCE CONTEXT ---\n"
+        f"{context}\n"
+        "--- END VERIFIED REFERENCE CONTEXT ---"
+    )
+
+
+def health():
+    cfg = get_config()
+    return {
+        "configured": bool(cfg["api_key"] and cfg["model"]),
+        "model": cfg["model"] or None,
+        "baseUrl": cfg["base_url"],
+    }
+
+
+def call_llm(rumor):
+    """Verify a rumor. Returns (status_code, payload_dict)."""
+    cfg = get_config()
+    if not cfg["api_key"] or not cfg["model"]:
+        return 503, {"error": "Server is not configured. Set AI_KEY and LLM_MODEL."}
+
+    try:
+        with open(_find_file("verification-context.md"), "r", encoding="utf-8") as f:
+            context = f.read()
+        with open(_find_file("RumorRemover_skill.md"), "r", encoding="utf-8") as f:
+            skill = f.read()
+    except OSError as e:
+        return 500, {"error": f"Could not read reference files: {e}"}
+
+    body = json.dumps({
+        "model": cfg["model"],
+        "max_tokens": MAX_TOKENS,
+        "temperature": 0.2,
+        "system": build_system_prompt(skill, context),
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": f'Assess this rumor:\n\n"""{rumor}"""'},
+            ]},
+        ],
+    }).encode("utf-8")
+
+    endpoint = cfg["base_url"] + "/messages"
+    req = urllib.request.Request(
+        endpoint,
+        data=body,
+        headers={
+            "content-type": "application/json",
+            "x-api-key": cfg["api_key"],
+            "anthropic-version": ANTHROPIC_VERSION,
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        try:
+            detail = json.loads(detail).get("error", {}).get("message", detail)
+        except Exception:
+            pass
+        sys.stderr.write(
+            f"[LLM ERROR] {e.code} from {endpoint} "
+            f"(key prefix {cfg['api_key'][:10]!r}, len {len(cfg['api_key'])}): {detail}\n"
+        )
+        return 502, {"error": f"Upstream API error ({e.code}): {detail}"}
+    except urllib.error.URLError as e:
+        sys.stderr.write(f"[LLM ERROR] could not reach endpoint: {e.reason}\n")
+        return 502, {"error": f"Could not reach the LLM endpoint: {e.reason}"}
+    except Exception as e:
+        sys.stderr.write(f"[LLM ERROR] unexpected: {e}\n")
+        return 500, {"error": f"Unexpected error: {e}"}
+
+    try:
+        content = "".join(
+            b.get("text", "") for b in data["content"] if b.get("type") == "text"
+        ).strip()
+        if not content:
+            raise ValueError("no text blocks")
+    except (KeyError, IndexError, AttributeError, TypeError, ValueError):
+        return 502, {"error": "Malformed response from the LLM endpoint.", "raw": data}
+
+    return 200, {"content": content, "model": cfg["model"]}
