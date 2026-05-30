@@ -41,8 +41,8 @@ def load_dotenv(path):
                 continue
             key, _, val = line.partition("=")
             key, val = key.strip(), val.strip().strip('"').strip("'")
-            # don't override an already-set environment variable
-            os.environ.setdefault(key, val)
+            # .env values take precedence so a stale/empty shell var can't shadow them
+            os.environ[key] = val
 
 
 load_dotenv(os.path.join(ROOT, ".env"))
