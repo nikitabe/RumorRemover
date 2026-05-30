@@ -18,7 +18,10 @@ import urllib.error
 
 DEFAULT_BASE = "https://api.anthropic.com/v1"
 ANTHROPIC_VERSION = "2023-06-01"
-MAX_TOKENS = 1500
+# Generous budget: reasoning models (e.g. Kimi) spend tokens on a hidden
+# reasoning trace before emitting the answer, so a small cap can truncate
+# the actual content. Non-reasoning models only use what they need.
+MAX_TOKENS = 8000
 
 
 def _find_file(name):
@@ -101,29 +104,45 @@ def call_llm(rumor):
     except OSError as e:
         return 500, {"error": f"Could not read reference files: {e}"}
 
-    body = json.dumps({
-        "model": cfg["model"],
-        "max_tokens": MAX_TOKENS,
-        "temperature": 0.2,
-        "system": build_system_prompt(skill, context),
-        "messages": [
-            {"role": "user", "content": [
-                {"type": "text", "text": f'Assess this rumor:\n\n"""{rumor}"""'},
-            ]},
-        ],
-    }).encode("utf-8")
+    system_prompt = build_system_prompt(skill, context)
+    user_text = f'Assess this rumor:\n\n"""{rumor}"""'
+    is_anthropic = "anthropic.com" in cfg["base_url"]
 
-    endpoint = cfg["base_url"] + "/messages"
-    req = urllib.request.Request(
-        endpoint,
-        data=body,
-        headers={
+    if is_anthropic:
+        # Anthropic Messages API: system is a top-level field; auth via x-api-key.
+        endpoint = cfg["base_url"] + "/messages"
+        body = json.dumps({
+            "model": cfg["model"],
+            "max_tokens": MAX_TOKENS,
+            "temperature": 0.2,
+            "system": system_prompt,
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": user_text}]},
+            ],
+        }).encode("utf-8")
+        headers = {
             "content-type": "application/json",
             "x-api-key": cfg["api_key"],
             "anthropic-version": ANTHROPIC_VERSION,
-        },
-        method="POST",
-    )
+        }
+    else:
+        # OpenAI-compatible Chat Completions (e.g. Nebius Token Factory).
+        endpoint = cfg["base_url"] + "/chat/completions"
+        body = json.dumps({
+            "model": cfg["model"],
+            "max_tokens": MAX_TOKENS,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [{"type": "text", "text": user_text}]},
+            ],
+        }).encode("utf-8")
+        headers = {
+            "content-type": "application/json",
+            "authorization": "Bearer " + cfg["api_key"],
+        }
+
+    req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
 
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
@@ -147,11 +166,14 @@ def call_llm(rumor):
         return 500, {"error": f"Unexpected error: {e}"}
 
     try:
-        content = "".join(
-            b.get("text", "") for b in data["content"] if b.get("type") == "text"
-        ).strip()
+        if is_anthropic:
+            content = "".join(
+                b.get("text", "") for b in data["content"] if b.get("type") == "text"
+            ).strip()
+        else:
+            content = data["choices"][0]["message"]["content"].strip()
         if not content:
-            raise ValueError("no text blocks")
+            raise ValueError("empty content")
     except (KeyError, IndexError, AttributeError, TypeError, ValueError):
         return 502, {"error": "Malformed response from the LLM endpoint.", "raw": data}
 
