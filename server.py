@@ -8,10 +8,12 @@ A dependency-free server (Python standard library only) that:
                                 using a server-side LLM call (key never reaches the browser)
   - exposes GET  /api/health -> reports whether the server is configured
 
+Uses the Anthropic Messages API (https://api.anthropic.com/v1/messages).
+
 Configuration (environment variables, optionally via a local .env file):
-  AI_KEY      (required) API key for the OpenAI-compatible endpoint
-  BASE_URL    (optional) default: https://api.tokenfactory.us-central1.nebius.com/v1
-  LLM_MODEL   (required) e.g. meta-llama/Llama-3.3-70B-Instruct
+  AI_KEY      (required) Anthropic API key, sent as the x-api-key header
+  BASE_URL    (optional) default: https://api.anthropic.com/v1
+  LLM_MODEL   (required) e.g. claude-sonnet-4-6
   PORT        (optional) default: 4321
 
 Run:  AI_KEY=... LLM_MODEL=... python3 server.py
@@ -27,7 +29,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONTEXT_FILE = os.path.join(ROOT, "verification-context.md")
 SKILL_FILE = os.path.join(ROOT, "RumorRemover_skill.md")
-DEFAULT_BASE = "https://api.tokenfactory.us-central1.nebius.com/v1"
+DEFAULT_BASE = "https://api.anthropic.com/v1"
+ANTHROPIC_VERSION = "2023-06-01"
+MAX_TOKENS = 1500
 
 
 # ---- minimal .env loader (no dependencies) ----
@@ -103,14 +107,14 @@ def call_llm(rumor):
     except OSError as e:
         return 500, {"error": f"Could not read RumorRemover_skill.md: {e}"}
 
+    # Anthropic Messages API: system prompt is a top-level field, and the user
+    # content is a list of typed blocks.
     body = json.dumps({
         "model": MODEL,
+        "max_tokens": MAX_TOKENS,
         "temperature": 0.2,
+        "system": build_system_prompt(skill, context),
         "messages": [
-            {
-                "role": "system",
-                "content": build_system_prompt(skill, context),
-            },
             {
                 "role": "user",
                 "content": [
@@ -120,12 +124,14 @@ def call_llm(rumor):
         ],
     }).encode("utf-8")
 
+    endpoint = BASE_URL + "/messages"
     req = urllib.request.Request(
-        BASE_URL + "/chat/completions",
+        endpoint,
         data=body,
         headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + API_KEY,
+            "content-type": "application/json",
+            "x-api-key": API_KEY,
+            "anthropic-version": ANTHROPIC_VERSION,
         },
         method="POST",
     )
@@ -139,15 +145,26 @@ def call_llm(rumor):
             detail = json.loads(detail).get("error", {}).get("message", detail)
         except Exception:
             pass
+        sys.stderr.write(
+            f"[LLM ERROR] {e.code} from {endpoint} "
+            f"(key prefix {API_KEY[:10]!r}, len {len(API_KEY)}): {detail}\n"
+        )
         return 502, {"error": f"Upstream API error ({e.code}): {detail}"}
     except urllib.error.URLError as e:
+        sys.stderr.write(f"[LLM ERROR] could not reach endpoint: {e.reason}\n")
         return 502, {"error": f"Could not reach the LLM endpoint: {e.reason}"}
     except Exception as e:
+        sys.stderr.write(f"[LLM ERROR] unexpected: {e}\n")
         return 500, {"error": f"Unexpected error: {e}"}
 
     try:
-        content = data["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, AttributeError):
+        # Anthropic Messages API returns content as a list of blocks.
+        content = "".join(
+            b.get("text", "") for b in data["content"] if b.get("type") == "text"
+        ).strip()
+        if not content:
+            raise ValueError("no text blocks")
+    except (KeyError, IndexError, AttributeError, TypeError, ValueError):
         return 502, {"error": "Malformed response from the LLM endpoint.", "raw": data}
 
     return 200, {"content": content, "model": MODEL}
