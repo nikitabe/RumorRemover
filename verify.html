@@ -46,13 +46,6 @@
 
   code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--panel-2);padding:2px 6px;border-radius:6px;font-size:.85em;color:var(--txt-soft);border:1px solid var(--line)}
 
-  /* SERVER STATUS */
-  .status-bar{background:var(--bg-soft);border:1px solid var(--line);border-radius:12px;padding:13px 18px;margin-bottom:22px;font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .badge{font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:3px 10px;border-radius:999px;text-transform:uppercase}
-  .badge.ok{background:rgba(14,159,110,.12);color:var(--brand-deep)}
-  .badge.err{background:rgba(220,38,38,.10);color:var(--alert)}
-  .badge.load{background:rgba(180,83,9,.10);color:var(--warn)}
-
   /* INPUT CARD */
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow-sm)}
   .card h2{font-family:var(--serif);font-size:1.4rem;font-weight:500;letter-spacing:-.01em;margin-bottom:6px}
@@ -145,12 +138,6 @@
 <main>
   <div class="wrap">
 
-    <!-- SERVER STATUS -->
-    <div class="status-bar" id="statusBar">
-      <span class="badge load" id="srvBadge">checking…</span>
-      <span id="srvText">Checking server status…</span>
-    </div>
-
     <!-- INPUT -->
     <div class="card">
       <h2>Enter a rumor to check</h2>
@@ -190,31 +177,10 @@
 const $ = id => document.getElementById(id);
 const els = {
   rumor:$('rumor'), btn:$('checkBtn'), btnText:$('btnText'),
-  result:$('result'), srvBadge:$('srvBadge'), srvText:$('srvText'),
+  result:$('result'),
   model:$('model'), modelHint:$('modelHint')
 };
 const MODEL_LS = 'rumorremover.model';
-
-// ---- server health ----
-let SERVER_READY = false;
-async function checkHealth(){
-  try{
-    const res = await fetch('/api/health', {cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const h = await res.json();
-    if(h.configured){
-      SERVER_READY = true;
-      els.srvBadge.className='badge ok'; els.srvBadge.textContent='ready';
-      els.srvText.innerHTML = `Server connected · model <code>${h.model}</code> · checks run against <code>verification-context.md</code>`;
-    }else{
-      els.srvBadge.className='badge err'; els.srvBadge.textContent='not configured';
-      els.srvText.innerHTML = `Server is running but missing credentials. Set <code>AI_KEY</code> and <code>LLM_MODEL</code> (env or <code>.env</code>) and restart.`;
-    }
-  }catch(e){
-    els.srvBadge.className='badge err'; els.srvBadge.textContent='offline';
-    els.srvText.innerHTML = `Backend not reachable (<code>/api/health</code> did not respond). On Vercel, ensure the <code>api/</code> functions are deployed and <code>AI_KEY</code> / <code>LLM_MODEL</code> are set in Project Settings → Environment Variables. Locally, run <code>python3 server.py</code> and open the page through it.`;
-  }
-}
 
 // ---- model selector ----
 async function loadModels(){
@@ -329,7 +295,6 @@ function setBusy(b){
 els.btn.addEventListener('click', checkRumor);
 els.rumor.addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') checkRumor(); });
 
-checkHealth();
 loadModels();
 </script>
 </body>
