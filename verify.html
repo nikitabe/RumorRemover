@@ -212,7 +212,11 @@ function detectVerdict(text){
 }
 const VICON = {TRUE:'✅', FALSE:'❌', MISLEADING:'⚠️', UNVERIFIABLE:'❓', OUT_OF_SCOPE:'🚫', ESCALATION:'🚨'};
 const VLABEL = {TRUE:'TRUE', FALSE:'FALSE', MISLEADING:'MISLEADING', UNVERIFIABLE:'UNVERIFIABLE', OUT_OF_SCOPE:'OUT OF SCOPE', ESCALATION:'ESCALATION REQUIRED'};
-function renderResult(text, model){
+function fmtDuration(ms){
+  if(ms==null || isNaN(ms)) return null;
+  return ms < 1000 ? `${ms} ms` : `${(ms/1000).toFixed(1)} s`;
+}
+function renderResult(text, model, elapsedMs){
   const verdict = detectVerdict(text);
   // strip the standalone VERDICT line from the body since we show it as a banner
   const body = text.replace(/^\s*\*{0,2}VERDICT:\*{0,2}.*$/im, '').trim();
@@ -221,7 +225,10 @@ function renderResult(text, model){
     html += `<div class="verdict ${verdict}"><span class="vico">${VICON[verdict]||'•'}</span><span class="vlabel">${VLABEL[verdict]||verdict}</span></div>`;
   }
   html += `<div class="answer">${marked.parse(body)}</div>`;
-  html += `<div class="meta"><span>Model: ${model||'—'}</span><span>Checked against verification-context.md</span><span>AI-generated · review before broadcast</span></div>`;
+  const dur = fmtDuration(elapsedMs);
+  html += `<div class="meta"><span>Model: ${model||'—'}</span>` +
+          (dur ? `<span>⏱ Generated in ${dur}</span>` : '') +
+          `<span>Checked against verification-context.md</span><span>AI-generated · review before broadcast</span></div>`;
   els.result.innerHTML = html;
 }
 function showLoading(){
@@ -255,7 +262,7 @@ async function checkRumor(){
       return;
     }
     if(!data || !data.content){ showError('Empty response', 'The server returned no content.'); return; }
-    renderResult(data.content, data.model);
+    renderResult(data.content, data.model, data.elapsedMs);
   }catch(e){
     showError('Network error', (e.message||e)+'<br><span style="color:var(--muted)">Is the backend running? Start it with <code>python3 server.py</code>.</span>');
   }finally{

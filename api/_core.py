@@ -13,6 +13,7 @@ Configuration via environment variables (Vercel project settings, or a local .en
 import json
 import os
 import sys
+import time
 import urllib.request
 import urllib.error
 
@@ -96,6 +97,7 @@ def call_llm(rumor):
     if not cfg["api_key"] or not cfg["model"]:
         return 503, {"error": "Server is not configured. Set AI_KEY and LLM_MODEL."}
 
+    overall_start = time.monotonic()
     try:
         with open(_find_file("verification-context.md"), "r", encoding="utf-8") as f:
             context = f.read()
@@ -177,4 +179,5 @@ def call_llm(rumor):
     except (KeyError, IndexError, AttributeError, TypeError, ValueError):
         return 502, {"error": "Malformed response from the LLM endpoint.", "raw": data}
 
-    return 200, {"content": content, "model": cfg["model"]}
+    elapsed_ms = round((time.monotonic() - overall_start) * 1000)
+    return 200, {"content": content, "model": cfg["model"], "elapsedMs": elapsed_ms}
