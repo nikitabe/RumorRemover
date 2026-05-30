@@ -227,8 +227,18 @@ async function loadModels(){
     const current = (d && d.current) || '';
     if(!models.length) throw new Error('no models');
     const want = (saved && models.includes(saved)) ? saved : current;
-    els.model.innerHTML = models.map(m =>
-      `<option value="${m}"${m===want?' selected':''}>${m}</option>`).join('');
+    // classify: reasoning models (Thinking / Kimi) are slow; everything else is fast
+    const isReasoning = id => /thinking|kimi/i.test(id);
+    const order = arr => arr.slice().sort((a,b)=>
+      (a.includes('-fast')?0:1) - (b.includes('-fast')?0:1) || a.localeCompare(b));
+    const opt = m => `<option value="${m}"${m===want?' selected':''}>${m}${m===current?' (default)':''}</option>`;
+    const fast = order(models.filter(m => !isReasoning(m)));
+    const reasoning = order(models.filter(isReasoning));
+    let html = '';
+    if(fast.length)      html += `<optgroup label="⚡ Fast · non-reasoning">${fast.map(opt).join('')}</optgroup>`;
+    if(reasoning.length) html += `<optgroup label="🧠 Reasoning · slower">${reasoning.map(opt).join('')}</optgroup>`;
+    els.model.innerHTML = html;
+    els.model.value = want;
     els.model.disabled = false;
     els.modelHint.textContent = current ? `default: ${current}` : '';
   }catch(e){
